@@ -166,3 +166,18 @@ void delete_vm_page_and_free(vm_page_t *vm_page){
     return_VM_to_kernel((void *)vm_page,1);
 }
 
+static int free_block_comparison_function(void *_block_meta_data1, void *_block_meta_data2){
+    block_meta_data_t *block_meta_data1 = (block_meta_data_t *)_block_meta_data1;
+    block_meta_data_t *block_meta_data2 = (block_meta_data_t *)_block_meta_data2;
+    if(block_meta_data1->block_size > block_meta_data2->block_size){
+        return -1;
+    }
+    else if(block_meta_data1->block_size < block_meta_data2->block_size){
+        return 1;
+    }
+    return 0;
+}
+
+static void mm_add_metablock_priority_list(vm_page_family_t *vm_page_family, block_meta_data_t* free_block){
+
+}
