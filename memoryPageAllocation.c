@@ -44,7 +44,7 @@ void mm_instantiate_new_page_family(char *struct_name, uint32_t struct_size){
         first_vm_page_for_families->next == NULL;
         strcpy(first_vm_page_for_families->vm_page_family[0].struct_name, struct_name);
         first_vm_page_for_families->vm_page_family[0].struct_size = struct_size;
-        init_glthread(&first_vm_page_for_families->vm_page_family[0].free_block_priority_head, (unsigned int)offset_of(block_meta_data_t, priority_glue));
+        init_glthread(&first_vm_page_for_families->vm_page_family[0].free_block_priority_head);
         return;
     }
 
@@ -131,7 +131,7 @@ vm_page_t * allocate_vm_page (vm_page_family_t *vm_page_family){
     MARK_VM_PAGE_EMPTY(vm_page);
     vm_page->block_meta_data.block_size = mm_max_allocatable_memmory(1);
     vm_page->block_meta_data.offset = offset_of(vm_page_t, block_meta_data);
-    init_glthread(&vm_page->block_meta_data.priority_glue,(unsigned int)offset_of(block_meta_data_t, priority_glue));
+    init_glthread(&vm_page->block_meta_data.priority_glue);
     vm_page->next = NULL;
     vm_page->prev = NULL;
     
@@ -179,5 +179,113 @@ static int free_block_comparison_function(void *_block_meta_data1, void *_block_
 }
 
 static void mm_add_metablock_priority_list(vm_page_family_t *vm_page_family, block_meta_data_t* free_block){
-
+    assert(free_block->is_free ==MM_TRUE);
+    glthread_priority_insert(&vm_page_family->free_block_priority_head,&free_block->priority_glue,free_block_comparison_function,offset_of(block_meta_data_t,priority_glue));
 }
+
+static vm_bool_t mm_split_free_block_for_allocation(vm_page_family_t *vm_page_family, block_meta_data_t *block_meta_data, uint32_t size){
+    block_meta_data_t *next_block_meta_data = NULL;
+    assert(block_meta_data->is_free == MM_TRUE);
+
+    if(block_meta_data->block_size < size){
+        return MM_FALSE;
+    }
+
+    uint32_t remaining_size = block_meta_data->block_size - size;
+
+    block_meta_data->is_free = MM_FALSE;
+    block_meta_data->block_size = size;
+    remove_glthread(&block_meta_data->priority_glue);
+    /*block_meta_data->offset =  ??*/
+
+    /*Case 1 : No Split*/
+    if(!remaining_size){
+        return MM_TRUE;
+    }
+
+    /*Case 3 : Partial Split : Soft Internal Fragmentation*/
+    else if(sizeof(block_meta_data_t) < remaining_size &&
+            remaining_size < (sizeof(block_meta_data_t) + vm_page_family->struct_size)){
+        /*New Meta block is to be created*/
+        next_block_meta_data = NEXT_META_BLOCK_BY_SIZE(block_meta_data);
+        next_block_meta_data->is_free = MM_TRUE;
+        next_block_meta_data->block_size =
+            remaining_size - sizeof(block_meta_data_t);
+        next_block_meta_data->offset = block_meta_data->offset +
+            sizeof(block_meta_data_t) + block_meta_data->block_size;
+        init_glthread(&next_block_meta_data->priority_glue);
+        mm_add_free_block_meta_data_to_free_block_list(vm_page_family, next_block_meta_data);
+        mm_bind_blocks_for_allocation(block_meta_data, next_block_meta_data);
+    }
+   
+    /*Case 3 : Partial Split : Hard Internal Fragmentation*/
+    else if(remaining_size < sizeof(block_meta_data_t)){
+        /*No need to do anything !!*/
+    }
+
+    /*Case 2 : Full Split  : New Meta block is Created*/
+    else {
+        /*New Meta block is to be created*/
+        next_block_meta_data = NEXT_META_BLOCK_BY_SIZE(block_meta_data);
+        next_block_meta_data->is_free = MM_TRUE;
+        next_block_meta_data->block_size =
+            remaining_size - sizeof(block_meta_data_t);
+        next_block_meta_data->offset = block_meta_data->offset +
+            sizeof(block_meta_data_t) + block_meta_data->block_size;
+        init_glthread(&next_block_meta_data->priority_glue);
+        mm_add_free_block_meta_data_to_free_block_list(
+                vm_page_family, next_block_meta_data);
+        mm_bind_blocks_for_allocation(block_meta_data, next_block_meta_data);
+    }
+
+    return MM_TRUE;
+}
+
+static block_meta_data_t *allocate_free_data_block(vm_page_family_t *vm_page_family, uint32_t req_size){
+    vm_bool_t status = MM_FALSE;
+    vm_page_t *vm_page = NULL;
+    block_meta_data_t *block_meta_data = NULL;
+
+    block_meta_data_t *biggest_block = mm_get_biggest_free_block_page_family(vm_page_family);
+    if(!biggest_block || biggest_block->block_size < req_size){
+        vm_page = allocate_vm_page(vm_page_family);
+        status = mm_split_free_block_for_allocation(vm_page_family,biggest_block,req_size);
+
+        if(status){
+            return &vm_page->block_meta_data;
+        }
+
+        return NULL;
+    }
+
+    if(biggest_block){
+         status = mm_split_free_block_for_allocation(vm_page_family,biggest_block,req_size);
+    }
+    if(status){
+            return &vm_page->block_meta_data;
+    }
+    return NULL;
+}
+
+//main driver API xcalloc
+void *xcalloc(char *struct_name, int units){
+    vm_page_family_t *pg_family = lookup_page_family_by_name(struct_name);
+    if(pg_family){
+        printf("Structure already registered\n");
+    }
+
+    if(units*pg_family->struct_size > mm_max_allocatable_memmory(1)){
+        printf("Memory requested exceeds system page size");
+        return NULL;
+    }
+    block_meta_data_t *free_block_meta_data = NULL;
+    free_block_meta_data = allocate_free_data_block(pg_family, units*pg_family->struct_size);
+
+    if(free_block_meta_data){
+        memset((char*)(free_block_meta_data + 1), 0, free_block_meta_data->block_size);
+        return (void*)(free_block_meta_data+1);
+    }
+
+    return NULL;
+}
+

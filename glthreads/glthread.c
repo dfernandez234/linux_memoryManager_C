@@ -1,81 +1,167 @@
 #include "glthread.h"
 #include <stdlib.h>
-#include <stdio.h>
 
-/*Private function to add a new_node right after curr_node*/
-static void
-_glthread_add_next(glthread_node_t *curr_node, 
-                   glthread_node_t *new_node){
-
-    if(!curr_node->right){
-        curr_node->right = new_node;
-        new_node->left = curr_node;
-        return;
-    }
-
-    glthread_node_t *temp = curr_node->right;
-    curr_node->right = new_node;
-    new_node->left = curr_node;
-    new_node->right = temp;
-    temp->left = new_node;
-}
-
-/*Fn to insert a new GLnode into a glthread at the first position
- * in a glthread i.e. new node becomes a head
- * */
 void
-glthread_add (glthread_t *lst, glthread_node_t *glnode){
+init_glthread(glthread_t *glthread){
 
-    glnode->left = NULL;
-    glnode->right = NULL;
-    if(!lst->head){
-        lst->head = glnode;
-        return;
-    }
-    glthread_node_t *head = lst->head;
-    _glthread_add_next(glnode, head);
-    lst->head = glnode;
+    glthread->left = NULL;
+    glthread->right = NULL;
 }
 
-static void
-_remove_glthread(glthread_node_t *glnode){
+void
+glthread_add_next(glthread_t *curr_glthread, glthread_t *new_glthread){
 
-    if(!glnode->left){
-        if(glnode->right){
-            glnode->right->left = NULL;
-            glnode->right = 0;
+    if(!curr_glthread->right){
+        curr_glthread->right = new_glthread;
+        new_glthread->left = curr_glthread;
+        return;
+    }
+
+    glthread_t *temp = curr_glthread->right;
+    curr_glthread->right = new_glthread;
+    new_glthread->left = curr_glthread;
+    new_glthread->right = temp;
+    temp->left = new_glthread;
+}
+
+void
+glthread_add_before(glthread_t *curr_glthread, glthread_t *new_glthread){
+    
+    if(!curr_glthread->left){
+        new_glthread->left = NULL;
+        new_glthread->right = curr_glthread;
+        curr_glthread->left = new_glthread;
+        return;
+    }
+    
+    glthread_t *temp = curr_glthread->left;
+    temp->right = new_glthread;
+    new_glthread->left = temp;
+    new_glthread->right = curr_glthread;
+    curr_glthread->left = new_glthread;
+}
+
+void
+remove_glthread(glthread_t *curr_glthread){
+    
+    if(!curr_glthread->left){
+        if(curr_glthread->right){
+            curr_glthread->right->left = NULL;
+            curr_glthread->right = 0;
             return;
         }
         return;
     }
-    if(!glnode->right){
-        glnode->left->right = NULL;
-        glnode->left = NULL;
+    if(!curr_glthread->right){
+        curr_glthread->left->right = NULL;
+        curr_glthread->left = NULL;
         return;
     }
 
-    glnode->left->right = glnode->right;
-    glnode->right->left = glnode->left;
-    glnode->left = 0;
-    glnode->right = 0;
+    curr_glthread->left->right = curr_glthread->right;
+    curr_glthread->right->left = curr_glthread->left;
+    curr_glthread->left = 0;
+    curr_glthread->right = 0;
 }
 
-/*API to remove a glnode from glthread*/
 void
-glthread_remove(glthread_t *lst, glthread_node_t *glnode){
+delete_glthread_list(glthread_t *base_glthread){
 
-    glthread_node_t *head = lst->head;
-    /*If the node being removed is the head node itself, then update the 
-     * head*/
-    if(head == glnode){
-        lst->head = head->right;
+    glthread_t *glthreadptr = NULL;
+               
+    ITERATE_GLTHREAD_BEGIN(base_glthread, glthreadptr){
+        remove_glthread(glthreadptr);
+    } ITERATE_GLTHREAD_END(base_glthread, glthreadptr);
+}
+
+void
+glthread_add_last(glthread_t *base_glthread, glthread_t *new_glthread){
+
+    glthread_t *glthreadptr = NULL,
+               *prevglthreadptr = NULL;
+    
+    ITERATE_GLTHREAD_BEGIN(base_glthread, glthreadptr){
+        prevglthreadptr = glthreadptr;
+    } ITERATE_GLTHREAD_END(base_glthread, glthreadptr);
+  
+    if(prevglthreadptr) 
+        glthread_add_next(prevglthreadptr, new_glthread); 
+    else
+        glthread_add_next(base_glthread, new_glthread);
+}
+
+unsigned int
+get_glthread_list_count(glthread_t *base_glthread){
+
+    unsigned int count = 0;
+    glthread_t *glthreadptr = NULL;
+
+    ITERATE_GLTHREAD_BEGIN(base_glthread, glthreadptr){
+        count++;
+    } ITERATE_GLTHREAD_END(base_glthread, glthreadptr);
+    return count;
+}
+
+
+void
+glthread_priority_insert(glthread_t *base_glthread, 
+                         glthread_t *glthread,
+                         int (*comp_fn)(void *, void *),
+                         int offset){
+
+
+    glthread_t *curr = NULL,
+               *prev = NULL;
+
+    init_glthread(glthread);
+
+    if(IS_GLTHREAD_LIST_EMPTY(base_glthread)){
+        glthread_add_next(base_glthread, glthread);
+        return;
     }
-    _remove_glthread(glnode);
-}
 
-void
-init_glthread(glthread_t *glthread, unsigned int offset){
+    /* Only one node*/
+    if(base_glthread->right && !base_glthread->right->right){
+        if(comp_fn(GLTHREAD_GET_USER_DATA_FROM_OFFSET(base_glthread->right, offset), 
+                GLTHREAD_GET_USER_DATA_FROM_OFFSET(glthread, offset)) == -1){
+            glthread_add_next(base_glthread->right, glthread);
+        }
+        else{
+            glthread_add_next(base_glthread, glthread);
+        }
+        return;
+    }
 
-    glthread->head = NULL;
-    glthread->offset = offset;
+    if(comp_fn(GLTHREAD_GET_USER_DATA_FROM_OFFSET(glthread, offset), 
+            GLTHREAD_GET_USER_DATA_FROM_OFFSET(base_glthread->right, offset)) == -1){
+        glthread_add_next(base_glthread, glthread);
+        return;
+    }
+
+    ITERATE_GLTHREAD_BEGIN(base_glthread, curr){
+
+        if(comp_fn(GLTHREAD_GET_USER_DATA_FROM_OFFSET(glthread, offset), 
+                GLTHREAD_GET_USER_DATA_FROM_OFFSET(curr, offset)) != -1){
+            prev = curr;
+            continue;
+        }
+
+        glthread_add_next(curr, glthread);
+        return;
+
+    }ITERATE_GLTHREAD_END(base_glthread, curr);
+
+    /*Add in the end*/
+    glthread_add_next(prev, glthread);
+} 
+
+#if 0
+void *
+gl_thread_search(glthread_t *base_glthread, 
+                 void *(*thread_to_struct_fn)(glthread_t *), 
+                 void *key, 
+                 int (*comparison_fn)(void *, void *)){
+
+    return NULL;
 }
+#endif

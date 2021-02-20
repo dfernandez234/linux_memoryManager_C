@@ -22,4 +22,11 @@ vm_page_family_t * lookup_page_family_by_name (char *struct_name);
 #define MM_SEARCH(struct_name)\
     (lookup_page_family_by_name (#struct_name))
 
+void *xcalloc(char *struct_name, int units);
+
+#define XCALLOC(struct_name, units) \ 
+    (xcalloc(#struct_name, units))
+
+void mm_print_memory_usage(char *struct_name);
+void mm_print_block_usage();
 #endif /*__UAPI_MM__*/

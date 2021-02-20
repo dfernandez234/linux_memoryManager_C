@@ -32,7 +32,7 @@ typedef struct block_meta_data{
     struct block_meta_data *prev;
     glthread_t priority_glue;
 }block_meta_data_t;
-GLTHREAD_TO_STRUCT(glthread_to_block_meta_data, block_meta_data_tt, priority_thread_glue, glthread_ptr);
+GLTHREAD_TO_STRUCT(glthread_to_block_meta_data, block_meta_data_t, priority_glue, glthread_ptr);
 
 typedef struct vm_page_{
     struct vm_page_ *next;
@@ -67,6 +67,53 @@ typedef struct vm_page_{
     vm_page_t_ptr->block_meta_data.next = NULL;\
     vm_page_t_ptr->block_meta_data.prev = NULL;\
     vm_page_t_ptr->block_meta_data.is_free = MM_TRUE;\
+
+static inline block_meta_data_t *
+mm_get_biggest_free_block_page_family(
+        vm_page_family_t *vm_page_family){
+
+    glthread_t *biggest_free_block_glue =
+        vm_page_family->free_block_priority_head.right;
+
+    if(biggest_free_block_glue)
+        return glthread_to_block_meta_data(biggest_free_block_glue);
+
+    return NULL;
+}
+
+#define NEXT_META_BLOCK_BY_SIZE(block_meta_data_ptr) (block_meta_data_t *)((char *)(block_meta_data_ptr + 1) + block_meta_data_ptr->block_size)
+
+#define mm_bind_blocks_for_allocation(allocated_meta_block, free_meta_block) free_meta_block->prev = allocated_meta_block; free_meta_block->next = allocated_meta_block->next; allocated_meta_block->next = free_meta_block; if (free_meta_block->next) free_meta_block->next->prev = free_meta_block;
+
+
+#define ITERATE_VM_PAGE_BEGIN(vm_page_family_ptr, curr)   \
+{                                             \
+    curr = vm_page_family_ptr->first_page;    \
+    vm_page_t *next = NULL;                   \
+    for(; curr; curr = next){                 \
+        next = curr->next;
+
+#define ITERATE_VM_PAGE_END(vm_page_family_ptr, curr)   \
+    }}
+
+#define ITERATE_VM_PAGE_ALL_BLOCKS_BEGIN(vm_page_ptr, curr)    \
+{                                                              \
+    curr = &vm_page_ptr->block_meta_data;                      \
+    block_meta_data_t *next = NULL;                            \
+    for( ; curr; curr = next){                                 \
+        next = NEXT_META_BLOCK(curr);
+
+#define ITERATE_VM_PAGE_ALL_BLOCKS_END(vm_page_ptr, curr)      \
+    }}
+
+#define ITERATE_PAGE_FAMILIES_BEGIN(vm_page_for_families_ptr, curr)                 \
+{                                                                                   \
+    uint32_t count = 0;                                                             \
+    for(curr = (vm_page_family_t *)&vm_page_for_families_ptr->vm_page_family[0];    \
+        curr->struct_size && count < MAX_FAMILIES_PER_VM_PAGE;                      \
+        curr++,count++){
+
+#define ITERATE_PAGE_FAMILIES_END(vm_page_for_families_ptr, curr)   }}
 
 
 #endif

@@ -21,6 +21,13 @@ int main(int argc, char const *argv[])
     MM_REG_STRUCT(emp_t);
     MM_REG_STRUCT(student_t);
     MM_PRINT();
-    printf("%p\n",MM_SEARCH("student_t"));
+    
+    XCALLOC(emp_t, 1);
+    XCALLOC(emp_t, 1);
+    XCALLOC(emp_t, 1);
+
+    XCALLOC(student_t, 1);
+    XCALLOC(student_t, 1);
+
     return 0;
 }
